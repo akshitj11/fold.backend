@@ -129,6 +129,23 @@ export const timelineEntry = pgTable("timeline_entry", {
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
+// Share table - Shareable links for timeline entries
+export const share = pgTable("share", {
+    id: text("id").primaryKey(),
+    entryId: text("entry_id")
+        .notNull()
+        .references(() => timelineEntry.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+        .notNull()
+        .references(() => user.id, { onDelete: "cascade" }),
+    token: text("token").notNull().unique(), // URL slug for public access
+    status: text("status").notNull().default("active"), // 'active' | 'paused'
+    viewCount: integer("view_count").notNull().default(0),
+    expiresAt: timestamp("expires_at"), // optional expiration
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
 // Entry Media table - ALL media associated with an entry (images, videos, audio)
 export const entryMedia = pgTable("entry_media", {
     id: text("id").primaryKey(),

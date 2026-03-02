@@ -10,6 +10,7 @@ import { authMiddleware, AuthVariables } from "./lib/middleware";
 import { openApiSpec } from "./lib/openapi";
 import { configRoutes } from "./routes/config.routes";
 import { profileRoutes } from "./routes/profile.routes";
+import { sharesRoutes } from "./routes/shares.routes";
 import { timelineRoutes } from "./routes/timeline.routes";
 import { uploadRoutes } from "./routes/upload.routes";
 import { userRoutes } from "./routes/user.routes";
@@ -239,6 +240,9 @@ app.route("/api/profile", profileRoutes);
 // Timeline routes
 app.route("/api/timeline", timelineRoutes);
 
+// Shares routes
+app.route("/api/shares", sharesRoutes);
+
 // Config routes (serves Appwrite config to client)
 app.route("/api/config", configRoutes);
 
@@ -329,6 +333,13 @@ serve(
 ║    GET    /api/timeline/:id         - Get single entry    ║
 ║    PATCH  /api/timeline/:id         - Update entry        ║
 ║    DELETE /api/timeline/:id         - Delete entry        ║
+╠═══════════════════════════════════════════════════════════╣
+║  Shares Endpoints:                                         ║
+║    POST   /api/shares               - Create share        ║
+║    GET    /api/shares               - List shares         ║
+║    PATCH  /api/shares/:id           - Toggle status       ║
+║    DELETE /api/shares/:id           - Delete share        ║
+║    GET    /api/shares/public/:token - Public view         ║
 ╠═══════════════════════════════════════════════════════════╣
 ║  📚 Documentation:                                        ║
 ║    GET    /docs                     - Swagger UI          ║
