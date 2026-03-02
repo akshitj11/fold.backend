@@ -490,6 +490,80 @@ timelineRoutes.get("/on-this-day", requireAuth, async (c) => {
 });
 
 /**
+ * GET /timeline/by-date?date=YYYY-MM-DD
+ * Returns all entries for the current user on a specific calendar date.
+ */
+timelineRoutes.get("/by-date", requireAuth, async (c) => {
+    const currentUser = c.get("user");
+    if (!currentUser) {
+        return c.json({ success: false, error: "User not found" }, 404);
+    }
+
+    const dateParam = c.req.query("date");
+    if (!dateParam || !/^\d{4}-\d{2}-\d{2}$/.test(dateParam)) {
+        return c.json(
+            { success: false, error: "Missing or invalid 'date' query param (expected YYYY-MM-DD)" },
+            400
+        );
+    }
+
+    try {
+        // Build start/end of the target day in UTC
+        const dayStart = `${dateParam} 00:00:00`;
+        const dayEnd = `${dateParam} 23:59:59.999`;
+
+        const entries = await db
+            .select()
+            .from(timelineEntry)
+            .where(
+                and(
+                    eq(timelineEntry.userId, currentUser.id),
+                    sql`${timelineEntry.createdAt} >= ${dayStart}::timestamp`,
+                    sql`${timelineEntry.createdAt} <= ${dayEnd}::timestamp`
+                )
+            )
+            .orderBy(desc(timelineEntry.createdAt));
+
+        if (entries.length === 0) {
+            return c.json({ success: true, data: [] });
+        }
+
+        // Fetch media for all matched entries
+        const entryIds = entries.map((e) => e.id);
+        const mediaMap: Record<string, any[]> = {};
+        for (const eid of entryIds) {
+            const media = await db
+                .select()
+                .from(entryMedia)
+                .where(eq(entryMedia.entryId, eid))
+                .orderBy(entryMedia.sortOrder);
+            if (media.length > 0) {
+                mediaMap[eid] = media;
+            }
+        }
+
+        const result = entries.map((entry) => ({
+            ...entry,
+            media: (mediaMap[entry.id] || []).map((m: any) => ({
+                id: m.id,
+                uri: m.uri,
+                type: m.type,
+                thumbnailUri: m.thumbnailUri,
+                duration: m.duration,
+                sortOrder: m.sortOrder,
+            })),
+        }));
+
+        return c.json({ success: true, data: result });
+    } catch (error: unknown) {
+        const msg =
+            error instanceof Error ? error.message : "Failed to fetch entries by date";
+        console.error("By-date error:", error);
+        return c.json({ success: false, error: msg }, 500);
+    }
+});
+
+/**
  * GET /timeline/:id
  * Get a single entry with media
  */
