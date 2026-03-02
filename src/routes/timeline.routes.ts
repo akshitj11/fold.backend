@@ -1,4 +1,4 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, ne, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 import { db } from "../db";
@@ -396,6 +396,95 @@ timelineRoutes.get("/", requireAuth, async (c) => {
         const msg =
             error instanceof Error ? error.message : "Failed to list entries";
         console.error("List entries error:", error);
+        return c.json({ success: false, error: msg }, 500);
+    }
+});
+
+/**
+ * GET /timeline/on-this-day
+ * Returns all entries for the current user whose month+day matches today,
+ * from PREVIOUS years only (not today). Grouped by year descending.
+ */
+timelineRoutes.get("/on-this-day", requireAuth, async (c) => {
+    const currentUser = c.get("user");
+    if (!currentUser) {
+        return c.json({ success: false, error: "User not found" }, 404);
+    }
+
+    try {
+        const now = new Date();
+        const currentYear = now.getFullYear();
+        // Zero-pad month and day for comparison
+        const currentMonth = String(now.getMonth() + 1).padStart(2, "0");
+        const currentDay = String(now.getDate()).padStart(2, "0");
+        const todayPrefix = `${currentYear}-${currentMonth}-${currentDay}`;
+
+        // Query all entries for this user where the month-day portion of created_at
+        // matches today's month-day, but the year is NOT the current year.
+        // created_at is a timestamp; we cast to text and use LIKE for month-day match.
+        const entries = await db
+            .select()
+            .from(timelineEntry)
+            .where(
+                and(
+                    eq(timelineEntry.userId, currentUser.id),
+                    // Match month-day: extract MM-DD from created_at ISO string
+                    sql`TO_CHAR(${timelineEntry.createdAt}, 'MM-DD') = ${`${currentMonth}-${currentDay}`}`,
+                    // Exclude current year
+                    sql`EXTRACT(YEAR FROM ${timelineEntry.createdAt}) < ${currentYear}`
+                )
+            )
+            .orderBy(
+                desc(sql`EXTRACT(YEAR FROM ${timelineEntry.createdAt})`),
+                asc(timelineEntry.createdAt)
+            );
+
+        if (entries.length === 0) {
+            return c.json({ success: true, data: [] });
+        }
+
+        // Fetch media for all matched entries
+        const entryIds = entries.map((e) => e.id);
+        const mediaMap: Record<string, any[]> = {};
+        for (const eid of entryIds) {
+            const media = await db
+                .select()
+                .from(entryMedia)
+                .where(eq(entryMedia.entryId, eid))
+                .orderBy(entryMedia.sortOrder);
+            if (media.length > 0) {
+                mediaMap[eid] = media;
+            }
+        }
+
+        // Group by year
+        const yearMap = new Map<number, any[]>();
+        for (const entry of entries) {
+            const year = entry.createdAt.getFullYear();
+            if (!yearMap.has(year)) yearMap.set(year, []);
+            yearMap.get(year)!.push({
+                ...entry,
+                media: (mediaMap[entry.id] || []).map((m: any) => ({
+                    id: m.id,
+                    uri: m.uri,
+                    type: m.type,
+                    thumbnailUri: m.thumbnailUri,
+                    duration: m.duration,
+                    sortOrder: m.sortOrder,
+                })),
+            });
+        }
+
+        // Sort years descending and build response array
+        const result = Array.from(yearMap.entries())
+            .sort(([a], [b]) => b - a)
+            .map(([year, yearEntries]) => ({ year, entries: yearEntries }));
+
+        return c.json({ success: true, data: result });
+    } catch (error: unknown) {
+        const msg =
+            error instanceof Error ? error.message : "Failed to fetch on-this-day entries";
+        console.error("On-this-day error:", error);
         return c.json({ success: false, error: msg }, 500);
     }
 });
