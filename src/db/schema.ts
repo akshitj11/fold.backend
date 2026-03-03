@@ -159,3 +159,40 @@ export const entryMedia = pgTable("entry_media", {
     sortOrder: integer("sort_order").notNull().default(0),
 });
 
+// =============================================================================
+// Fold Connect — One-to-one shared memory timeline
+// =============================================================================
+
+// Connection table - Exactly one active connection per user
+export const connection = pgTable("connection", {
+    id: text("id").primaryKey(),
+    requesterId: text("requester_id")
+        .notNull()
+        .references(() => user.id, { onDelete: "cascade" }),
+    receiverId: text("receiver_id")
+        .notNull()
+        .references(() => user.id, { onDelete: "cascade" }),
+    status: text("status").notNull().default("pending"), // 'pending' | 'active' | 'ended'
+    inviteCode: text("invite_code").unique(), // 6-char code for connection requests
+    acceptedAt: timestamp("accepted_at"),
+    endedAt: timestamp("ended_at"),
+    cooldownUntil: timestamp("cooldown_until"), // Earliest date user can make a new connection
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+// Connect Memory table - Entries shared to the connection timeline
+export const connectMemory = pgTable("connect_memory", {
+    id: text("id").primaryKey(),
+    connectionId: text("connection_id")
+        .notNull()
+        .references(() => connection.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+        .notNull()
+        .references(() => user.id, { onDelete: "cascade" }),
+    entryId: text("entry_id")
+        .notNull()
+        .references(() => timelineEntry.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+

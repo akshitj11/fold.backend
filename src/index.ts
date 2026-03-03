@@ -1,14 +1,18 @@
 import { serve } from "@hono/node-server";
 import { swaggerUI } from "@hono/swagger-ui";
+import { eq, sql } from "drizzle-orm";
 import "dotenv/config";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 import { prettyJSON } from "hono/pretty-json";
+import { db } from "./db";
+import { share } from "./db/schema";
 import { auth } from "./lib/auth";
 import { authMiddleware, AuthVariables } from "./lib/middleware";
 import { openApiSpec } from "./lib/openapi";
 import { configRoutes } from "./routes/config.routes";
+import { connectRoutes } from "./routes/connect.routes";
 import { profileRoutes } from "./routes/profile.routes";
 import { sharesRoutes } from "./routes/shares.routes";
 import { timelineRoutes } from "./routes/timeline.routes";
@@ -39,6 +43,7 @@ app.use(
       // Allow specific origins
       const allowed = [
         "https://backend.fold.taohq.org",
+        "https://link.fold.taohq.org",
         "http://localhost:3000",
         "http://localhost:8081",
       ];
@@ -60,6 +65,233 @@ app.use(
 
 // Auth middleware - attaches user/session to context
 app.use("*", authMiddleware);
+
+// =============================================================================
+// Short Link Domain (link.fold.taohq.org)
+// =============================================================================
+
+// Intercept ALL requests to the link domain before normal routes
+app.use("*", async (c, next) => {
+  const host =
+    c.req.header("x-forwarded-host")?.split(":")[0] ||
+    c.req.header("host")?.split(":")[0];
+  console.log("[LINK] Host check:", { host, xForwardedHost: c.req.header("x-forwarded-host"), rawHost: c.req.header("host") });
+  if (host !== "link.fold.taohq.org") return next();
+
+  const url = new URL(c.req.url);
+  const path = url.pathname;
+
+  // ── .well-known/apple-app-site-association (iOS Universal Links) ──
+  if (path === "/.well-known/apple-app-site-association") {
+    return c.json(
+      {
+        applinks: {
+          details: [
+            {
+              appIDs: ["TEAM_ID.com.taohq.fold"],
+              components: [{ "/": "/*", comment: "Match all short link paths" }],
+            },
+          ],
+        },
+      },
+      200,
+      { "Content-Type": "application/json" }
+    );
+  }
+
+  // ── .well-known/assetlinks.json (Android App Links) ──
+  if (path === "/.well-known/assetlinks.json") {
+    return c.json(
+      [
+        {
+          relation: ["delegate_permission/common.handle_all_urls"],
+          target: {
+            namespace: "android_app",
+            package_name: "com.taohq.fold",
+            sha256_cert_fingerprints: [
+              // TODO: Replace with actual signing key fingerprint
+              // Run: keytool -list -v -keystore your-key.keystore | grep SHA256
+              "SHA256_FINGERPRINT_HERE",
+            ],
+          },
+        },
+      ],
+      200,
+      { "Content-Type": "application/json" }
+    );
+  }
+
+  // ── /{token} — Short link handler ──
+  const tokenMatch = path.match(/^\/([a-z0-9]{10})$/);
+  if (tokenMatch) {
+    const token = tokenMatch[1];
+
+    // Look up the share
+    const shares = await db
+      .select()
+      .from(share)
+      .where(eq(share.token, token))
+      .limit(1);
+
+    const isValid = shares.length > 0 && shares[0].status === "active";
+    const isExpired =
+      shares.length > 0 &&
+      shares[0].expiresAt &&
+      new Date(shares[0].expiresAt) < new Date();
+
+    // Determine status message
+    let statusMessage = "Someone shared a Fold memory with you";
+    if (!isValid && !isExpired) statusMessage = "This link is no longer available";
+    if (isExpired) statusMessage = "This link has expired";
+
+    // Increment view count for valid shares
+    if (isValid && !isExpired) {
+      await db
+        .update(share)
+        .set({ viewCount: sql`${share.viewCount} + 1` })
+        .where(eq(share.id, shares[0].id));
+    }
+
+    // Serve HTML fallback page (Universal Links opens the app instead for installed users)
+    return c.html(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Fold - Shared Memory</title>
+  <meta property="og:title" content="Fold - A memory was shared with you" />
+  <meta property="og:description" content="${statusMessage}" />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://link.fold.taohq.org/${token}" />
+  <meta name="twitter:card" content="summary" />
+  <meta name="twitter:title" content="Fold - A memory was shared with you" />
+  <meta name="twitter:description" content="${statusMessage}" />
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #EDEADC;
+      color: #181717;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+    .card {
+      background: #FDFBF7;
+      border-radius: 20px;
+      padding: 40px 32px;
+      max-width: 380px;
+      width: 100%;
+      text-align: center;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.08);
+    }
+    .logo {
+      font-size: 36px;
+      font-weight: 700;
+      color: #810100;
+      letter-spacing: 2px;
+      margin-bottom: 8px;
+    }
+    .tagline {
+      font-size: 13px;
+      color: rgba(0,0,0,0.4);
+      margin-bottom: 28px;
+      letter-spacing: 0.5px;
+    }
+    .divider {
+      width: 48px;
+      height: 3px;
+      background: #810100;
+      border-radius: 2px;
+      margin: 0 auto 24px;
+    }
+    .message {
+      font-size: 18px;
+      font-weight: 500;
+      line-height: 1.5;
+      margin-bottom: 32px;
+      color: #181717;
+    }
+    .btn {
+      display: block;
+      width: 100%;
+      padding: 16px;
+      border-radius: 14px;
+      font-size: 16px;
+      font-weight: 600;
+      text-decoration: none;
+      margin-bottom: 12px;
+      cursor: pointer;
+      border: none;
+      transition: opacity 0.2s;
+    }
+    .btn:hover { opacity: 0.85; }
+    .btn-primary {
+      background: #810100;
+      color: #FDFBF7;
+    }
+    .btn-secondary {
+      background: rgba(129, 1, 0, 0.1);
+      color: #810100;
+    }
+    .footer {
+      margin-top: 24px;
+      font-size: 12px;
+      color: rgba(0,0,0,0.3);
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="logo">Fold</div>
+    <div class="tagline">YOUR PRIVATE MEMORY VAULT</div>
+    <div class="divider"></div>
+    <p class="message">${statusMessage}</p>
+    ${
+      isValid && !isExpired
+        ? `<a href="fold://share/${token}" class="btn btn-primary">Open in Fold</a>`
+        : ""
+    }
+    <a href="https://apps.apple.com/app/fold" class="btn btn-secondary">Get Fold for iOS</a>
+    <a href="https://play.google.com/store/apps/details?id=com.taohq.fold" class="btn btn-secondary">Get Fold for Android</a>
+  </div>
+  <div class="footer">Privacy-first journaling</div>
+  ${
+    isValid && !isExpired
+      ? `<script>
+    // Try to open the app automatically after a short delay
+    setTimeout(function() {
+      window.location.href = "fold://share/${token}";
+    }, 100);
+  </script>`
+      : ""
+  }
+</body>
+</html>`);
+  }
+
+  // Any other path on the link domain — 404
+  return c.html(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Fold</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+      background: #EDEADC; color: #181717;
+      min-height: 100vh; display: flex; align-items: center; justify-content: center;
+    }
+    h1 { color: #810100; font-size: 32px; }
+  </style>
+</head>
+<body><h1>Fold</h1></body>
+</html>`, 404);
+});
 
 // =============================================================================
 // Routes
@@ -242,6 +474,9 @@ app.route("/api/timeline", timelineRoutes);
 
 // Shares routes
 app.route("/api/shares", sharesRoutes);
+
+// Connect routes (Fold Connect)
+app.route("/api/connect", connectRoutes);
 
 // Config routes (serves Appwrite config to client)
 app.route("/api/config", configRoutes);
