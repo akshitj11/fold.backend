@@ -70,6 +70,20 @@ async function getActiveConnection(userId: string) {
     return rows[0] ?? null;
 }
 
+/** Delete any stale invite-code placeholder rows for the given user IDs */
+async function cleanupInvitePlaceholders(...userIds: string[]): Promise<void> {
+    for (const userId of userIds) {
+        await db.delete(connection).where(
+            and(
+                eq(connection.requesterId, userId),
+                eq(connection.receiverId, userId),
+                eq(connection.status, "pending"),
+                sql`${connection.inviteCode} IS NOT NULL`
+            )
+        );
+    }
+}
+
 /** Check if user is in cooldown (recently ended a connection) */
 async function isInCooldown(userId: string): Promise<{ inCooldown: boolean; until: Date | null }> {
     const ended = await db
@@ -350,6 +364,10 @@ connectRoutes.post("/request/code", requireAuth, async (c) => {
             .where(eq(connection.id, pending.id))
             .returning();
 
+        // Clean up any stale invite-code placeholder for the joiner
+        // (the requester's placeholder was the one we just activated — receiverId was updated)
+        await cleanupInvitePlaceholders(currentUser.id);
+
         return c.json({ success: true, data: updated });
     } catch (error: unknown) {
         const msg = error instanceof Error ? error.message : "Failed to connect";
@@ -507,6 +525,9 @@ connectRoutes.post("/accept/:id", requireAuth, async (c) => {
             })
             .where(eq(connection.id, requestId))
             .returning();
+
+        // Clean up any stale invite-code placeholders for both parties
+        await cleanupInvitePlaceholders(currentUser.id, pending.requesterId);
 
         return c.json({ success: true, data: updated });
     } catch (error: unknown) {
