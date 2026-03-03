@@ -554,6 +554,44 @@ connectRoutes.post("/decline/:id", requireAuth, async (c) => {
 });
 
 /**
+ * DELETE /cancel/:id
+ * Cancel a pending connection request that the current user sent
+ */
+connectRoutes.delete("/cancel/:id", requireAuth, async (c) => {
+    const currentUser = c.get("user");
+    if (!currentUser) return c.json({ success: false, error: "User not found" }, 404);
+
+    const requestId = c.req.param("id");
+
+    try {
+        // Only the requester can cancel their own sent request
+        const [pending] = await db
+            .select()
+            .from(connection)
+            .where(
+                and(
+                    eq(connection.id, requestId),
+                    eq(connection.requesterId, currentUser.id),
+                    eq(connection.status, "pending")
+                )
+            )
+            .limit(1);
+
+        if (!pending) {
+            return c.json({ success: false, error: "Request not found or already handled" }, 404);
+        }
+
+        await db.delete(connection).where(eq(connection.id, requestId));
+
+        return c.json({ success: true, message: "Request cancelled" });
+    } catch (error: unknown) {
+        const msg = error instanceof Error ? error.message : "Failed to cancel";
+        console.error("Connect cancel error:", error);
+        return c.json({ success: false, error: msg }, 500);
+    }
+});
+
+/**
  * POST /end
  * End the current active connection (triggers 30-day cooldown)
  */
