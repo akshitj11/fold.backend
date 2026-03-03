@@ -226,6 +226,27 @@ connectRoutes.get("/code", requireAuth, async (c) => {
             return c.json({ success: true, data: { inviteCode: existing[0].inviteCode } });
         }
 
+        // Check if user already has a pending direct request — if so, they can't
+        // also generate an invite code (one pending connection at a time)
+        const existingDirectRequest = await db
+            .select()
+            .from(connection)
+            .where(
+                and(
+                    eq(connection.requesterId, currentUser.id),
+                    eq(connection.status, "pending"),
+                    sql`${connection.inviteCode} IS NULL`
+                )
+            )
+            .limit(1);
+
+        if (existingDirectRequest.length > 0) {
+            return c.json({
+                success: false,
+                error: "You already have a pending connection request. Cancel it first to use an invite code.",
+            }, 400);
+        }
+
         // Generate a unique invite code
         let code = generateInviteCode();
         let attempts = 0;
@@ -412,6 +433,18 @@ connectRoutes.post("/request/user", requireAuth, async (c) => {
         if (existingPending.length > 0) {
             return c.json({ success: false, error: "A request already exists between you two" }, 400);
         }
+
+        // Delete any invite-code placeholder rows for this user before creating a
+        // direct request — a user can only pursue one pending connection at a time.
+        // Placeholder rows are self-referencing (requesterId === receiverId) with an inviteCode.
+        await db.delete(connection).where(
+            and(
+                eq(connection.requesterId, currentUser.id),
+                eq(connection.receiverId, currentUser.id),
+                eq(connection.status, "pending"),
+                sql`${connection.inviteCode} IS NOT NULL`
+            )
+        );
 
         const id = generateId();
         const [created] = await db
