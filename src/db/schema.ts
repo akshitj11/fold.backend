@@ -181,6 +181,17 @@ export const connection = pgTable("connection", {
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
+// User Settings table - Per-user preferences (1:1 with user)
+export const userSettings = pgTable("user_settings", {
+    userId: text("user_id")
+        .primaryKey()
+        .references(() => user.id, { onDelete: "cascade" }),
+    autoLocation: boolean("auto_location").notNull().default(false),
+    screenshotProtection: boolean("screenshot_protection").notNull().default(true),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
 // Connect Memory table - Entries shared to the connection timeline
 export const connectMemory = pgTable("connect_memory", {
     id: text("id").primaryKey(),

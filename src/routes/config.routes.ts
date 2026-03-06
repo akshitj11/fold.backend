@@ -18,3 +18,18 @@ configRoutes.get("/storage", requireAuth, async (c) => {
         },
     });
 });
+
+/**
+ * GET /api/config/app
+ * Returns app-level configuration values (cooldown period, etc.)
+ * Public — no auth required, values are not sensitive.
+ */
+configRoutes.get("/app", async (c) => {
+    const cooldownDays = parseInt(process.env.CONNECT_COOLDOWN_DAYS || "30", 10);
+    return c.json({
+        success: true,
+        data: {
+            cooldownDays,
+        },
+    });
+});

@@ -31,7 +31,7 @@ function generateInviteCode(): string {
     return code;
 }
 
-const COOLDOWN_DAYS = 30;
+const COOLDOWN_DAYS = parseInt(process.env.CONNECT_COOLDOWN_DAYS || "30", 10);
 
 // =============================================================================
 // Validation
