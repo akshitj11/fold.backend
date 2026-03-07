@@ -16,6 +16,7 @@
     "@hono/swagger-ui": "^0.5.3",
     "@hono/zod-validator": "^0.7.6",
     "@neondatabase/serverless": "^1.0.2",
+    "ably": "^2.19.0",
     "better-auth": "^1.4.18",
     "dotenv": "^17.2.3",
     "drizzle-orm": "^0.45.1",

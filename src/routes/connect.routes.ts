@@ -9,6 +9,7 @@ import {
     timelineEntry,
     user,
 } from "../db/schema";
+import { publishNotification } from "../lib/ably";
 import { requireAuth, type AuthVariables } from "../lib/middleware";
 
 const connectRoutes = new Hono<{ Variables: AuthVariables }>();
@@ -368,6 +369,14 @@ connectRoutes.post("/request/code", requireAuth, async (c) => {
         // (the requester's placeholder was the one we just activated — receiverId was updated)
         await cleanupInvitePlaceholders(currentUser.id);
 
+        // Notify the original requester that their invite code was used and connection is now active
+        publishNotification(pending.requesterId, {
+            type: "connection_accepted",
+            title: "Connection Active!",
+            body: `${currentUser.name} joined using your invite code`,
+            data: { connectionId: updated.id },
+        });
+
         return c.json({ success: true, data: updated });
     } catch (error: unknown) {
         const msg = error instanceof Error ? error.message : "Failed to connect";
@@ -475,6 +484,14 @@ connectRoutes.post("/request/user", requireAuth, async (c) => {
             })
             .returning();
 
+        // Notify the target user they received a connection request
+        publishNotification(targetUserId, {
+            type: "connection_request",
+            title: "New Connection Request",
+            body: `${currentUser.name} wants to connect with you`,
+            data: { requestId: id, requesterId: currentUser.id },
+        });
+
         return c.json({ success: true, data: created }, 201);
     } catch (error: unknown) {
         const msg = error instanceof Error ? error.message : "Failed to send request";
@@ -528,6 +545,14 @@ connectRoutes.post("/accept/:id", requireAuth, async (c) => {
 
         // Clean up any stale invite-code placeholders for both parties
         await cleanupInvitePlaceholders(currentUser.id, pending.requesterId);
+
+        // Notify the requester that their connection request was accepted
+        publishNotification(pending.requesterId, {
+            type: "connection_accepted",
+            title: "Connection Accepted!",
+            body: `${currentUser.name} accepted your connection request`,
+            data: { connectionId: updated.id },
+        });
 
         return c.json({ success: true, data: updated });
     } catch (error: unknown) {
@@ -639,6 +664,18 @@ connectRoutes.post("/end", requireAuth, async (c) => {
                 updatedAt: now,
             })
             .where(eq(connection.id, active.id));
+
+        // Notify the partner that the connection was ended
+        const partnerId =
+            active.requesterId === currentUser.id
+                ? active.receiverId
+                : active.requesterId;
+        publishNotification(partnerId, {
+            type: "connection_ended",
+            title: "Connection Ended",
+            body: `${currentUser.name} ended the connection`,
+            data: { connectionId: active.id },
+        });
 
         return c.json({
             success: true,
@@ -759,6 +796,18 @@ connectRoutes.post("/memories", requireAuth, async (c) => {
                 entryId,
             })
             .returning();
+
+        // Notify the partner that a memory was shared
+        const partnerId =
+            active.requesterId === currentUser.id
+                ? active.receiverId
+                : active.requesterId;
+        publishNotification(partnerId, {
+            type: "memory_shared",
+            title: "New Shared Memory",
+            body: `${currentUser.name} shared a memory with you`,
+            data: { memoryId: id, entryId },
+        });
 
         return c.json({ success: true, data: created }, 201);
     } catch (error: unknown) {
