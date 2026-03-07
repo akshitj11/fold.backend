@@ -1,4 +1,8 @@
 import Ably from "ably";
+import { eq } from "drizzle-orm";
+import { db } from "../db";
+import { user } from "../db/schema";
+import { sendPushNotification } from "./push";
 
 // =============================================================================
 // Ably Server-Side Client (Singleton)
@@ -67,13 +71,15 @@ export interface NotificationPayload {
 }
 
 /**
- * Publish a notification to a user's private channel.
+ * Publish a notification to a user's private channel (Ably in-app)
+ * AND send a native push notification via Expo Push API.
  * Fire-and-forget — errors are logged but don't propagate.
  */
 export async function publishNotification(
     userId: string,
     notification: NotificationPayload
 ): Promise<void> {
+    // 1. Ably in-app notification
     try {
         const client = getAblyClient();
         const channel = client.channels.get(`notifications:${userId}`);
@@ -86,7 +92,26 @@ export async function publishNotification(
 
         console.log(`[Ably] Notification sent to user ${userId}: ${notification.type}`);
     } catch (error) {
-        // Don't let notification failures break the main flow
         console.error(`[Ably] Failed to publish notification to ${userId}:`, error);
+    }
+
+    // 2. Native push notification (Expo Push API)
+    try {
+        const [targetUser] = await db
+            .select({ pushToken: user.pushToken })
+            .from(user)
+            .where(eq(user.id, userId))
+            .limit(1);
+
+        if (targetUser?.pushToken) {
+            await sendPushNotification(
+                targetUser.pushToken,
+                notification.title,
+                notification.body,
+                { type: notification.type, ...notification.data }
+            );
+        }
+    } catch (error) {
+        console.error(`[Push] Failed to send push to ${userId}:`, error);
     }
 }

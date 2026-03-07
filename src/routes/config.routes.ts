@@ -1,4 +1,7 @@
+import { eq } from "drizzle-orm";
 import { Hono } from "hono";
+import { db } from "../db";
+import { user } from "../db/schema";
 import { createTokenRequestForUser, publishNotification } from "../lib/ably";
 import { requireAuth, type AuthVariables } from "../lib/middleware";
 
@@ -82,4 +85,40 @@ configRoutes.post("/test-notification", requireAuth, async (c) => {
     });
 
     return c.json({ success: true, message: `Test notification sent: ${n.type}` });
+});
+
+/**
+ * POST /api/config/push-token
+ * Register or update the user's Expo push token for native notifications.
+ * Body: { pushToken: "ExponentPushToken[...]" }
+ */
+configRoutes.post("/push-token", requireAuth, async (c) => {
+    const currentUser = c.get("user");
+    if (!currentUser) return c.json({ success: false, error: "User not found" }, 404);
+
+    try {
+        const body = await c.req.json();
+        const { pushToken } = body;
+
+        if (!pushToken || typeof pushToken !== "string") {
+            return c.json({ success: false, error: "pushToken is required" }, 400);
+        }
+
+        // Validate format
+        if (!pushToken.startsWith("ExponentPushToken[") && !pushToken.startsWith("ExpoPushToken[")) {
+            return c.json({ success: false, error: "Invalid push token format" }, 400);
+        }
+
+        await db
+            .update(user)
+            .set({ pushToken, updatedAt: new Date() })
+            .where(eq(user.id, currentUser.id));
+
+        console.log(`[Push] Token registered for user ${currentUser.id}`);
+        return c.json({ success: true, message: "Push token registered" });
+    } catch (error: unknown) {
+        const msg = error instanceof Error ? error.message : "Failed to register token";
+        console.error("[Push] Token registration error:", error);
+        return c.json({ success: false, error: msg }, 500);
+    }
 });
