@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { createTokenRequestForUser } from "../lib/ably";
+import { createTokenRequestForUser, publishNotification } from "../lib/ably";
 import { requireAuth, type AuthVariables } from "../lib/middleware";
 
 export const configRoutes = new Hono<{ Variables: AuthVariables }>();
