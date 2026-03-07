@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { db } from "../db";
 import {
+    timelineEntry,
     userActivity,
     userBadge,
     userProfile,
@@ -128,6 +129,33 @@ profileRoutes.get("/me", requireAuth, async (c) => {
         profile.lastActiveDate === today ||
         profile.lastActiveDate === yesterday;
 
+    // Fetch user stories for insights
+    const userStories = await db
+        .select({
+            content: timelineEntry.storyContent,
+            mood: timelineEntry.mood,
+        })
+        .from(timelineEntry)
+        .where(
+            and(
+                eq(timelineEntry.userId, currentUser.id),
+                eq(timelineEntry.type, "story")
+            )
+        );
+
+    let totalStoryWords = 0;
+    let happyStoryCount = 0;
+
+    for (const story of userStories) {
+        if (story.content) {
+            totalStoryWords += story.content.trim().split(/\s+/).length;
+        }
+        const mood = story.mood?.toLowerCase();
+        if (mood && (mood.includes('happy') || mood === 'normal')) {
+            happyStoryCount++;
+        }
+    }
+
     return c.json({
         success: true,
         data: {
@@ -138,6 +166,11 @@ profileRoutes.get("/me", requireAuth, async (c) => {
                 profile.currentStreak > 0 ? isStreakActive : false,
             totalAudioMinutes: profile.totalAudioMinutes,
             totalEntries: profile.totalEntries,
+            storyStats: {
+                totalStories: userStories.length,
+                totalStoryWords,
+                happyStoryCount,
+            },
             badges: badges.map((b) => ({
                 type: b.badgeType,
                 earnedAt: b.earnedAt,
