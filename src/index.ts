@@ -1,7 +1,7 @@
 import { serve } from "@hono/node-server";
 import { swaggerUI } from "@hono/swagger-ui";
-import { eq, sql } from "drizzle-orm";
 import "dotenv/config";
+import { eq, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
@@ -11,6 +11,7 @@ import { share } from "./db/schema";
 import { auth } from "./lib/auth";
 import { authMiddleware, AuthVariables } from "./lib/middleware";
 import { openApiSpec } from "./lib/openapi";
+import { adminRoutes } from "./routes/admin.routes";
 import { configRoutes } from "./routes/config.routes";
 import { connectRoutes } from "./routes/connect.routes";
 import { profileRoutes } from "./routes/profile.routes";
@@ -44,8 +45,10 @@ app.use(
       const allowed = [
         "https://backend.fold.taohq.org",
         "https://link.fold.taohq.org",
+        "https://admin.fold.taohq.org",
         "http://localhost:3000",
         "http://localhost:8081",
+        "http://localhost:3001",
       ];
 
       // Allow Expo and app deep links
@@ -480,6 +483,9 @@ app.route("/api/connect", connectRoutes);
 
 // Config routes (serves Appwrite config to client)
 app.route("/api/config", configRoutes);
+
+// Admin routes (secured with env credentials + JWT)
+app.route("/api/admin", adminRoutes);
 
 // =============================================================================
 // Error Handling

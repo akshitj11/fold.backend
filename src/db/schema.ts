@@ -1,9 +1,9 @@
 import {
-    boolean,
-    integer,
-    pgTable,
-    text,
-    timestamp,
+  boolean,
+  integer,
+  pgTable,
+  text,
+  timestamp,
 } from "drizzle-orm/pg-core";
 
 // User table - Core user data + custom fields (name, avatar)
@@ -208,3 +208,48 @@ export const connectMemory = pgTable("connect_memory", {
     createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+// =============================================================================
+// Admin Dashboard Tables
+// =============================================================================
+
+// Admin Activity Log — records every admin action for auditing
+export const adminLog = pgTable("admin_log", {
+    id: text("id").primaryKey(),
+    action: text("action").notNull(),     // e.g. "user_banned", "notification_sent"
+    entity: text("entity"),               // e.g. "user", "cms", "notification"
+    entityId: text("entity_id"),
+    detail: text("detail"),               // JSON string with extra context
+    ipAddress: text("ip_address"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+// Notification Send Log — history of admin-sent push notifications
+export const notificationLog = pgTable("notification_log", {
+    id: text("id").primaryKey(),
+    title: text("title").notNull(),
+    body: text("body").notNull(),
+    audience: text("audience").notNull(),  // "all" | "active" | "ios" | etc.
+    sentCount: integer("sent_count").notNull().default(0),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+// CMS Entries — in-app content updatable without redeploying
+export const cmsEntry = pgTable("cms_entry", {
+    id: text("id").primaryKey(),
+    slug: text("slug").notNull().unique(),
+    type: text("type").notNull(),            // "announcement" | "banner" | "faq" | "help" | "terms" | "privacy"
+    title: text("title").notNull(),
+    content: text("content").notNull(),      // HTML from rich text editor
+    isActive: boolean("is_active").notNull().default(true),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+// Feature Flags — enable/disable app features without redeploying
+export const featureFlag = pgTable("feature_flag", {
+    id: text("id").primaryKey(),
+    key: text("key").notNull().unique(),     // e.g. "enable_stories", "enable_connect"
+    enabled: boolean("enabled").notNull().default(false),
+    description: text("description"),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
