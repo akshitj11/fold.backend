@@ -2,7 +2,7 @@ import { eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { db } from "../db";
 import { user } from "../db/schema";
-import { createTokenRequestForUser, publishNotification } from "../lib/ably";
+import { publishNotification } from "../lib/ably";
 import { requireAuth, type AuthVariables } from "../lib/middleware";
 
 export const configRoutes = new Hono<{ Variables: AuthVariables }>();
@@ -39,29 +39,8 @@ configRoutes.get("/app", async (c) => {
 });
 
 /**
- * GET /api/config/ably-token
- * Generate a signed Ably TokenRequest for the authenticated user.
- * The client uses this to connect to Ably without ever seeing the API key.
- * Token is scoped to subscribe on `notifications:<userId>` only.
- */
-configRoutes.get("/ably-token", requireAuth, async (c) => {
-    const user = c.get("user");
-    if (!user) return c.json({ success: false, error: "User not found" }, 404);
-
-    try {
-        const tokenRequest = await createTokenRequestForUser(user.id);
-        return c.json({ success: true, data: tokenRequest });
-    } catch (error: unknown) {
-        const msg = error instanceof Error ? error.message : "Failed to create token";
-        console.error("[Ably] Token request error:", error);
-        return c.json({ success: false, error: msg }, 500);
-    }
-});
-
-/**
  * POST /api/config/test-notification
- * Send a test notification to yourself. For development/testing only.
- * Remove this in production!
+ * Send a test push notification to yourself. For development/testing only.
  */
 configRoutes.post("/test-notification", requireAuth, async (c) => {
     const user = c.get("user");
@@ -74,7 +53,6 @@ configRoutes.post("/test-notification", requireAuth, async (c) => {
         { type: "connection_ended", title: "Connection Ended", body: "A connection was ended" },
     ];
 
-    // Pick a random notification type
     const n = types[Math.floor(Math.random() * types.length)];
 
     await publishNotification(user.id, {
@@ -104,7 +82,6 @@ configRoutes.post("/push-token", requireAuth, async (c) => {
             return c.json({ success: false, error: "pushToken is required" }, 400);
         }
 
-        // Validate format
         if (!pushToken.startsWith("ExponentPushToken[") && !pushToken.startsWith("ExpoPushToken[")) {
             return c.json({ success: false, error: "Invalid push token format" }, 400);
         }
