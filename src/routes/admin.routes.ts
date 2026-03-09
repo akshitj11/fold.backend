@@ -1,7 +1,7 @@
-import { createHmac, timingSafeEqual } from "crypto";
 import { count, desc, eq, gte, sql } from "drizzle-orm";
 import type { Context, Next } from "hono";
 import { Hono } from "hono";
+import { sign, verify } from "hono/jwt";
 import { nanoid } from "nanoid";
 import { db } from "../db";
 import {
@@ -27,31 +27,16 @@ const ADMIN_USERNAME = process.env.ADMIN_USERNAME ?? "admin";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "changeme";
 const JWT_SECRET = process.env.ADMIN_JWT_SECRET ?? "admin-secret-key-change-me";
 
-function signToken(payload: Record<string, unknown>): string {
-    const data = JSON.stringify({ ...payload, iat: Date.now() });
-    const b64 = Buffer.from(data).toString("base64url");
-    const sig = createHmac("sha256", JWT_SECRET).update(b64).digest("base64url");
-    return `${b64}.${sig}`;
-}
-
-function verifyToken(token: string): Record<string, unknown> | null {
-    const [b64, sig] = token.split(".");
-    if (!b64 || !sig) return null;
-    const expectedSig = createHmac("sha256", JWT_SECRET).update(b64).digest("base64url");
-    try {
-        if (!timingSafeEqual(Buffer.from(sig, "base64url"), Buffer.from(expectedSig, "base64url"))) return null;
-    } catch { return null; }
-    return JSON.parse(Buffer.from(b64, "base64url").toString("utf-8"));
-}
-
 async function requireAdmin(c: Context, next: Next) {
     const authHeader = c.req.header("Authorization");
     if (!authHeader?.startsWith("Bearer ")) {
         return c.json({ success: false, error: "Unauthorized" }, 401);
     }
     const token = authHeader.slice(7);
-    const payload = verifyToken(token);
-    if (!payload) {
+    try {
+        const payload = await verify(token, JWT_SECRET, "HS256");
+        if (!payload) throw new Error();
+    } catch (e) {
         return c.json({ success: false, error: "Invalid or expired token" }, 401);
     }
     await next();
@@ -97,7 +82,7 @@ adminRoutes.post("/login", async (c) => {
     if (username !== ADMIN_USERNAME || password !== ADMIN_PASSWORD) {
         return c.json({ success: false, error: "Invalid credentials" }, 401);
     }
-    const token = signToken({ sub: "admin", role: "admin" });
+    const token = await sign({ sub: "admin", role: "admin", exp: Math.floor(Date.now() / 1000) + 60 * 60 * 24 }, JWT_SECRET, "HS256");
     return c.json({ success: true, data: { token } });
 });
 
