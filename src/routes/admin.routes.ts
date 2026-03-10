@@ -15,7 +15,7 @@ import {
   timelineEntry,
   user,
   userActivity,
-  userProfile,
+  userProfile
 } from "../db/schema";
 import { publishNotification } from "../lib/ably";
 

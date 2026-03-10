@@ -1,9 +1,9 @@
 import {
-  boolean,
-  integer,
-  pgTable,
-  text,
-  timestamp,
+    boolean,
+    integer,
+    pgTable,
+    text,
+    timestamp,
 } from "drizzle-orm/pg-core";
 
 // User table - Core user data + custom fields (name, avatar)
@@ -252,4 +252,14 @@ export const featureFlag = pgTable("feature_flag", {
     enabled: boolean("enabled").notNull().default(false),
     description: text("description"),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+// APK Releases
+export const apkRelease = pgTable("apk_release", {
+    id: text("id").primaryKey(),
+    version: text("version").notNull(),     // e.g "1.0.4"
+    url: text("url").notNull(),             // Direct download link (S3/R2)
+    changeLog: text("change_log"),          // What's new in this version
+    isActive: boolean("is_active").notNull().default(true),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
 });

@@ -12,6 +12,7 @@ import { auth } from "./lib/auth";
 import { authMiddleware, AuthVariables } from "./lib/middleware";
 import { openApiSpec } from "./lib/openapi";
 import { adminRoutes } from "./routes/admin.routes";
+import { apkRoutes } from "./routes/apk.routes";
 import { configRoutes } from "./routes/config.routes";
 import { connectRoutes } from "./routes/connect.routes";
 import { profileRoutes } from "./routes/profile.routes";
@@ -486,6 +487,9 @@ app.route("/api/config", configRoutes);
 
 // Admin routes (secured with env credentials + JWT)
 app.route("/api/admin", adminRoutes);
+
+// Public APK routes
+app.route("/api/public/apk", apkRoutes);
 
 // =============================================================================
 // Error Handling
