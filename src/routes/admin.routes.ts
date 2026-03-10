@@ -6,6 +6,7 @@ import { nanoid } from "nanoid";
 import { db } from "../db";
 import {
   adminLog,
+  apkRelease,
   cmsEntry,
   connection,
   entryMedia,
@@ -493,3 +494,39 @@ adminRoutes.get("/export/logs", requireAdmin, async (c) => {
     }
     return c.json({ success: true, data: rows });
 });
+
+// =============================================================================
+// APK Releases
+// =============================================================================
+
+adminRoutes.get("/apk", requireAdmin, async (c) => {
+    const releases = await db.select().from(apkRelease).orderBy(desc(apkRelease.createdAt));
+    return c.json({ success: true, data: releases });
+});
+
+adminRoutes.post("/apk", requireAdmin, async (c) => {
+    const body = await c.req.json();
+    const { version, url, changeLog, isActive } = body;
+
+    const id = nanoid();
+    const [release] = await db.insert(apkRelease).values({
+        id,
+        version,
+        url,
+        changeLog,
+        isActive: isActive ?? true
+    }).returning();
+
+    await logAction(c, "apk_published", "apkRelease", release.id, { version });
+    return c.json({ success: true, data: release });
+});
+
+adminRoutes.delete("/apk/:id", requireAdmin, async (c) => {
+    const id = c.req.param("id");
+    const [deleted] = await db.delete(apkRelease).where(eq(apkRelease.id, id)).returning();
+    if (!deleted) return c.json({ success: false, error: "Not found" }, 404);
+
+    await logAction(c, "apk_deleted", "apkRelease", id, { version: deleted.version });
+    return c.json({ success: true });
+});
+
