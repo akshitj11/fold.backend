@@ -1,105 +1,102 @@
-import { betterAuth } from "better-auth";
-import { drizzleAdapter } from "better-auth/adapters/drizzle";
-import { expo } from "@better-auth/expo";
+import { PrivyClient } from "@privy-io/server-auth";
+import { eq } from "drizzle-orm";
+import type { Context, Next } from "hono";
 import { db } from "../db";
-import * as schema from "../db/schema";
+import { user } from "../db/schema";
 
-export const auth = betterAuth({
-    // Base URL for OAuth callbacks - MUST be set for production
-    baseURL: process.env.BETTER_AUTH_URL || "https://backend.fold.taohq.org",
-    
-    database: drizzleAdapter(db, {
-        provider: "pg",
-        schema: {
-            user: schema.user,
-            session: schema.session,
-            account: schema.account,
-            verification: schema.verification,
-        },
-    }),
+const privyAppId = process.env.PRIVY_APP_ID || "";
+const privyAppSecret = process.env.PRIVY_APP_SECRET || "";
 
-    // Plugins
-    plugins: [
-        expo(), // Expo plugin adds /expo-authorization-proxy endpoint for OAuth
-    ],
+export const privy = new PrivyClient(privyAppId, privyAppSecret);
 
-    // Email and Password authentication
-    emailAndPassword: {
-        enabled: true,
-        requireEmailVerification: false,
-    },
+type AuthContextData = {
+  userId: string;
+  walletAddress: string | null;
+  privyUserId: string;
+};
 
-    // Google OAuth
-    socialProviders: {
-        google: {
-            clientId: process.env.GOOGLE_CLIENT_ID as string,
-            clientSecret: process.env.GOOGLE_CLIENT_SECRET as string,
-        },
-    },
+function createUserName(email: string | null, walletAddress: string | null, privyUserId: string): string {
+  if (email) return email.split("@")[0] || "fold-user";
+  if (walletAddress) return `user-${walletAddress.slice(2, 8)}`;
+  return `user-${privyUserId.slice(-6)}`;
+}
 
-    // Session configuration with JWT (stateless-like with cookie cache)
-    session: {
-        expiresIn: 60 * 60 * 24 * 7, // 7 days
-        updateAge: 60 * 60 * 24, // Update session every 24 hours
-        cookieCache: {
-            enabled: true,
-            maxAge: 60 * 60 * 24 * 7, // 7 days
-            strategy: "jwt",
-        },
-    },
+export async function verifyPrivyToken(authorizationHeader: string | undefined): Promise<AuthContextData> {
+  if (!authorizationHeader || !authorizationHeader.startsWith("Bearer ")) {
+    throw new Error("missing authorization token");
+  }
 
-    // User configuration - additional fields
-    user: {
-        additionalFields: {
-            avatar: {
-                type: "string",
-                required: false,
-                fieldName: "image", // Maps to 'image' column in DB
-            },
-        },
-    },
+  const token = authorizationHeader.slice(7);
+  const claims = await privy.verifyAuthToken(token);
+  const privyUserId = claims.userId;
 
-    // Rate limiting
-    rateLimit: {
-        enabled: true,
-        window: 60, // 60 seconds
-        max: 100, // 100 requests per window
-    },
+  const privyUser = await privy.getUser(privyUserId);
+  const email = privyUser.email?.address || null;
+  const walletAddress =
+    privyUser.wallet?.address ||
+    privyUser.linkedAccounts.find((account) => account.type === "wallet" && "address" in account)?.address ||
+    null;
 
-    // Advanced options
-    advanced: {
-        crossSubDomainCookies: {
-            enabled: false,
-        },
-        defaultCookieAttributes: {
-            sameSite: "lax",
-            secure: process.env.NODE_ENV === "production", // true for HTTPS in production
-            httpOnly: true,
-        },
-    },
+  let existing = await db.select().from(user).where(eq(user.privyUserId, privyUserId)).limit(1);
 
-    // Account configuration for OAuth state handling
-    account: {
-        accountLinking: {
-            enabled: true,
-            trustedProviders: ["google"],
-        },
-    },
+  if (existing.length === 0 && email) {
+    existing = await db.select().from(user).where(eq(user.email, email)).limit(1);
+  }
 
-    // Trusted origins for CORS and mobile apps
-    trustedOrigins: [
-        // Production
-        "https://backend.fold.taohq.org",
-        process.env.FRONTEND_URL || "http://localhost:3001",
-        // Development
-        "http://localhost:3000",
-        "http://localhost:8081",
-        // Mobile app deep links
-        "fold://",
-        "fold://*",
-        // Expo development
-        "exp://",
-        "exp://**",
-        "exp://192.168.*.*:*/**",
-    ],
-});
+  if (existing.length === 0) {
+    const created = await db
+      .insert(user)
+      .values({
+        id: crypto.randomUUID(),
+        name: createUserName(email, walletAddress, privyUserId),
+        email: email || `${privyUserId}@privy.local`,
+        emailVerified: Boolean(email),
+        walletAddress,
+        privyUserId,
+        lastSeen: new Date(),
+      })
+      .returning();
+    existing = created;
+  } else {
+    const current = existing[0];
+    const nextWallet = walletAddress || current.walletAddress;
+    await db
+      .update(user)
+      .set({
+        walletAddress: nextWallet,
+        privyUserId,
+        lastSeen: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(user.id, current.id));
+  }
+
+  return {
+    userId: existing[0].id,
+    walletAddress: walletAddress || existing[0].walletAddress || null,
+    privyUserId,
+  };
+}
+
+export async function verifyPrivyJWT(c: Context, next: Next) {
+  try {
+    const authData = await verifyPrivyToken(c.req.header("Authorization"));
+    c.set("auth", authData);
+    const [currentUser] = await db.select().from(user).where(eq(user.id, authData.userId)).limit(1);
+    c.set("user", currentUser || null);
+    await next();
+  } catch {
+    return c.json({ success: false, error: "unauthorized" }, 401);
+  }
+}
+
+export async function verifyAdminWallet(c: Context, next: Next) {
+  const expected = process.env.ADMIN_WALLET_ADDRESS || "";
+  const provided = c.req.header("x-admin-wallet") || "";
+
+  if (!expected || expected.toLowerCase() !== provided.toLowerCase()) {
+    return c.json({ success: false, error: "forbidden" }, 403);
+  }
+
+  await next();
+}
