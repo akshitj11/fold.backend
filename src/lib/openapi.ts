@@ -704,9 +704,9 @@ export const openApiSpec = {
         securitySchemes: {
             cookieAuth: {
                 type: "apiKey",
-                in: "cookie",
-                name: "better-auth.session_token",
-                description: "Session cookie from authentication",
+                in: "header",
+                name: "authorization",
+                description: "Privy JWT bearer token",
             },
         },
         schemas: {
