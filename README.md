@@ -1,24 +1,27 @@
 # Fold Backend API
 
-A modern, type-safe backend API powering the Fold mobile app. Built with Hono, Better-Auth, Drizzle ORM, and Neon Serverless Postgres.
+A type-safe Hono backend for Fold decentralized memory stack. Built with Hono, Drizzle ORM, and Neon PostgreSQL, with Privy auth, Pinata IPFS relay, Polygon Amoy integration, and Stripe subscriptions.
 
-## 🚀 Features
+## Features
 
-- **Authentication** - Email/password & Google OAuth via Better-Auth
-- **User Management** - Profile CRUD, connection requests (friends), activity tracking
-- **Timeline & Media** - Timeline entries with text, audio, photos, videos (stored in AWS S3)
-- **Shared Memories** - Granular sharing of timeline entries between connected users
+- Privy JWT authentication with wallet-linked user identities
+- Encrypted memory pointer storage using IPFS CIDs and manifest CIDs
+- Memory, share, and subscription APIs for web3 mobile flows
+- Quota and rate-limit middleware for upload and memory operations
+- Blockchain status and admin metrics endpoints
+- Expo push token registration and notification dispatch
 
-## 📦 Tech Stack
+## Tech Stack
 
-- **Framework**: [Hono](https://hono.dev/) - Ultrafast, edge-ready web framework
-- **Database**: [Neon PostgreSQL](https://neon.tech/) + [Drizzle ORM](https://orm.drizzle.team/)
-- **Auth**: [Better-Auth](https://www.better-auth.com/)
-- **Storage**: AWS S3 (via `@aws-sdk/client-s3`)
-- **Push Notifications**: Expo Server SDK
-- **Runtime**: Node.js with TypeScript
+- Framework: Hono
+- Database: Neon PostgreSQL + Drizzle ORM
+- Auth: Privy server auth
+- Storage relay: Pinata IPFS API
+- Chain client: viem + permissionless (Polygon Amoy)
+- Payments: Stripe
+- Runtime: Node.js + TypeScript
 
-## 🛠 Setup
+## Setup
 
 ### 1. Install dependencies
 
@@ -28,64 +31,68 @@ npm install
 
 ### 2. Configure environment
 
-Copy `.env.example` to `.env` and fill in your values (or create a new `.env` file):
+Copy `.env.example` to `.env` and fill values.
 
 ```env
-# Database (Neon PostgreSQL)
-DATABASE_URL="postgresql://user:password@ep-cool...neon.tech/fold"
+DATABASE_URL="postgresql://user:password@host/database?sslmode=require"
+PORT=3000
+NODE_ENV="development"
+FRONTEND_URL="http://localhost:8081"
+CONNECT_COOLDOWN_DAYS=30
 
-# Better Auth
-BETTER_AUTH_SECRET="your-32-char-secret"
-BETTER_AUTH_URL="http://localhost:3000"
-
-# Google OAuth
-GOOGLE_CLIENT_ID="..."
-GOOGLE_CLIENT_SECRET="..."
-
-# AWS S3 Storage (for media uploads)
-S3_REGION="us-east-1"
-S3_ACCESS_KEY="..."
-S3_SECRET_KEY="..."
-S3_BUCKET_NAME="fold-app-media"
+PRIVY_APP_ID=
+PRIVY_APP_SECRET=
+PINATA_JWT=
+CERAMIC_URL=https://ceramic-clay.3boxlabs.com
+PIMLICO_API_KEY=
+POLYGON_RPC_URL=https://rpc-amoy.polygon.technology
+MEMORY_VAULT_ADDRESS=
+PAYMASTER_ADDRESS=
+PREMIUM_SBT_ADDRESS=
+STORAGE_NFT_ADDRESS=
+DEPLOYER_PRIVATE_KEY=
+STRIPE_SECRET_KEY=
+STRIPE_WEBHOOK_SECRET=
+STRIPE_PREMIUM_PRICE_ID=
+ADMIN_WALLET_ADDRESS=
 ```
 
-### 3. Database Schema
-
-Push the Drizzle schema directly to your Neon database:
+### 3. Push schema
 
 ```bash
 npm run db:push
 ```
 
-### 4. Start Development Server
+### 4. Run dev server
 
 ```bash
 npm run dev
 ```
-The server will start on `http://localhost:3000`.
 
-## 🔗 Core API Routes
+Server runs at `http://localhost:3000`.
 
-The backend exposes several modular routers under `/api`:
+## Core API Routes
 
-- **`/api/auth/*`** - Better-Auth endpoints (login, register, session)
-- **`/api/user/*`** - User profile management and settings (auto-location, screenshot protection)
-- **`/api/timeline/*`** - Create and fetch memories (photos, videos, audio, text)
-- **`/api/profile/*`** - Activity levels, streaks, badges, and Fold Score
-- **`/api/connect/*`** - Social graph: friend requests, invite codes, and memory sharing
-- **`/api/upload/*`** - Secure asset uploads to S3
-- **`/api/config/*`** - Push token registration and app configuration
+- `/api/auth/verify`, `/api/auth/wallet-link`
+- `/api/upload/ipfs`, `/api/upload/manifest`
+- `/api/memories`, `/api/memories/:id`
+- `/api/blockchain/record`, `/api/blockchain/status/:tx`
+- `/api/share/memory`, `/api/share/received`, `/api/share/:id`
+- `/api/subscription/checkout`, `/api/subscription/webhook`, `/api/subscription/status`
+- `/api/config/push-token`
+- `/api/admin/metrics`, `/api/admin/users`
+- Existing routers retained: `/api/profile/*`, `/api/connect/*`, `/api/timeline/*`, `/api/user/*`
 
-## 📜 Scripts
+## Scripts
 
 ```bash
-npm run dev          # Start dev server with hot reload
-npm run build        # Build for production
-npm run start        # Run production build
-npm run db:push      # Push schema changes to database
-npm run db:studio    # Open Drizzle local GUI
+npm run dev
+npm run build
+npm run start
+npm run db:push
+npm run db:studio
 ```
 
-## 📄 License
+## License
 
 MIT
